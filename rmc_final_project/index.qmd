@@ -1,0 +1,417 @@
+---
+title: "Incidence of Cervical Cancer"
+author: "Tiogouo Tezemene Kevine"
+format: 
+  dashboard:
+    logo: images/cervical-cancer.png
+    nav-buttons: [github]
+    github: https://github.com/kevinetiogouo/cervical_cancer 
+theme: journal
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+# Load packages 
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(tidyverse, 
+               here,
+               sf,
+               bslib, 
+               bsicons,
+               rnaturalearth, 
+               plotly, 
+               countrycode, 
+               htmltools, 
+               reactable,
+               janitor,
+               gapminder,
+               shiny,
+               inspectdf
+               )
+
+```
+
+```{r}
+# Import data
+
+library(readr)
+cerv_cancer <- read_csv("data/cervical_cancer_new_cases_per_100000_women.csv")
+#View(cerv_cancer)
+
+
+```
+
+```{r}
+# Data diagnostics
+
+#str(cerv_cancer)
+
+# dropping columns with missing data and renaming the country "UAE", "USA"
+
+cerv_cancer_data <- cerv_cancer %>% 
+  select(-c(2:38)) %>% 
+  mutate(country = case_when(
+    country == "UAE" ~ "United Arab Emirates",
+    country == "USA" ~ "United States",
+    TRUE ~ country))
+
+# Pivoting longer
+
+cerv_cancer_long <- cerv_cancer_data %>% 
+  pivot_longer(cols = -country,
+               names_to = "year",
+               values_to = "cancer_rate") %>% 
+  mutate(year = as.numeric(year))
+  
+
+# filtering the maximum year
+
+cerv_cancer_2019 <- cerv_cancer_long %>% 
+  filter(year == 2019)
+
+
+```
+
+```{r}
+# highest cervical cancer rate
+
+highest_cancer_rate_country <- cerv_cancer_2019 %>% 
+  arrange(-cancer_rate) %>% 
+   head(1) %>% 
+  pull(country)
+
+highest_cancer_rate_value <- cerv_cancer_2019 %>% 
+  arrange(-cancer_rate) %>% 
+   head(1) %>% 
+  pull(cancer_rate) %>% 
+  round(1)
+
+
+
+# lowest cervical cancer rate
+
+lowest_cancer_rate_country <- cerv_cancer_2019 %>% 
+  arrange(cancer_rate) %>% 
+   head(1) %>% 
+  pull(country)
+
+lowest_cancer_rate_value <- cerv_cancer_2019 %>% 
+  arrange(cancer_rate) %>% 
+   head(1) %>% 
+  pull(cancer_rate) %>% 
+  round(1)
+
+```
+
+```{r}
+# calculating and adding columns for absolute change and relative change
+
+cerv_cancer_abs_rel <- cerv_cancer_data %>% 
+  select(country, `1990`, `2019`) %>% 
+  mutate(
+    absolute_change = round(`2019` - `1990`, 1),
+    relative_change = round(((`2019` - `1990`) / `1990`) * 100, 1)) 
+  
+
+# increased relative change 
+
+increase_rel_change_country <- cerv_cancer_abs_rel %>%  
+  arrange(-relative_change) %>% 
+   head(1) %>% 
+  pull(country)
+
+increase_rel_change_value <- cerv_cancer_abs_rel %>% 
+  arrange(-relative_change) %>% 
+   head(1) %>% 
+  pull(relative_change) %>% 
+  paste0("%")
+
+# decreased relative change 
+
+decrease_rel_change_country <- cerv_cancer_abs_rel %>% 
+  arrange(relative_change) %>% 
+   head(1) %>% 
+  pull(country)
+
+decrease_rel_change_value <- cerv_cancer_abs_rel %>% 
+  arrange(relative_change) %>% 
+   head(1) %>% 
+  pull(relative_change) %>% 
+    paste0("%")
+
+# renaming cerv_cancer_abs_rel
+cerv_cancer_abs_rel_renamed <- cerv_cancer_abs_rel %>%
+  rename(`Country` = country,
+         `Absolute change` = absolute_change,
+         `Relative change` = relative_change) 
+
+```
+
+```{r}
+# assigning the rnaturalearth package to an object "country_shapes"
+
+country_shapes <- rnaturalearth::ne_countries() 
+  
+
+# adding a column of countrycode in the cerv_cancer_2019 dataset to ease joining. "Serbia and Montenegro" already appear as seperate countries in the dataset, so we drop the combined name to ease matching 
+
+cerv_cancer_iso_19 <- cerv_cancer_2019 %>% 
+  filter(country != "Serbia and Montenegro") %>% 
+  mutate(country_code = countrycode(country, "country.name", "iso3c"))
+
+
+#identifying differences in variables with the setdiff function
+#setdiff(cerv_cancer_long_iso$country_code, country_shapes$adm0_a3)
+
+
+#filtering to view the codes
+#cerv_cancer_iso_19 %>% 
+#filter(country_code %in% c("AND", "ASM", "ATG", "BHR", "BMU", "BRB", "COK", "COM", "CPV", "DMA", "FSM", "GRD", "GUM", "HKG", "KIR", "KNA", "LCA", "MCO", "MDV", "MHL", "MLT", "MNP", "MUS", "NIU", "NRU", "PLW", "PSE", "PYF", "SGP", "SMR", "SSD", "STP", "SYC",
+                     #"TKL", "TON", "TUV", "VCT", "VIR", "WSM") |
+        # is.na(country_code)) 
+
+
+#setdiff(country_shapes$adm0_a3, cerv_cancer_long_iso$country_code)
+
+#country_shapes %>% 
+ # select(adm0_a3, name, name_long) %>% 
+ #filter(adm0_a3 %in% c("SAH", "FLK", "ATF", "PSX", "NCL", "ATA", "CYN", "SOL", "KOS", "SDS") |
+         #is.na(adm0_a3)) 
+
+#Coutries with mismatched iso codes
+#countryshapes: Palestine(PSX) / cerv_cancer_long_iso: Palestine(PSE)
+#countryshapes: South Sudan(SDS) / cerv_cancer_long_iso: South Sudan(SSD)
+
+# conditional mutate 
+
+country_shapes_renamed <- country_shapes %>% 
+  mutate(
+    adm0_a3 = case_when(
+      adm0_a3 == "PSX" ~ "PSE",
+      adm0_a3 == "SDS" ~ "SSD",
+      TRUE ~ adm0_a3)
+  ) 
+
+
+# verifying matched iso codes
+#setdiff(country_shapes_renamed$adm0_a3, cerv_cancer_long_iso$country_code)
+
+```
+
+```{r}
+# mapping the highest year (2019)
+
+cerv_cancer_map_19 <- left_join(country_shapes_renamed, cerv_cancer_iso_19, by = c("adm0_a3" = "country_code")) %>% 
+   mutate(tooltip_label = paste(country,
+                               round(cancer_rate, 1),
+                               sep = ":")) %>% 
+  ggplot()+
+  geom_sf(aes(fill = cancer_rate, 
+              geometry = geometry, 
+              text = tooltip_label)) +
+  theme_void() +
+  scale_fill_continuous(low = "pink",
+                        high = "darkred") + 
+  theme(legend.position = "none")
+
+
+# using ggplotly for interactivity
+
+cerv_cancer_map_19_ggplotly <- ggplotly(cerv_cancer_map_19, tooltip = "text", width = 900)
+
+
+```
+
+```{r}
+
+# Incidence rate by country
+
+cerv_cancer_country <- cerv_cancer_2019 %>% 
+  arrange(desc(cancer_rate)) %>% 
+  head(20) %>% 
+  mutate(tooltip_label = paste(country,
+                               round(cancer_rate, 1),
+                               sep = ":")) %>% 
+  ggplot(aes(y = reorder(country, cancer_rate), 
+             x = cancer_rate, 
+             fill = cancer_rate,
+             text = tooltip_label)) + 
+  geom_col() +
+  scale_fill_continuous(low = "pink",
+                        high = "darkred") +
+  labs(y = "Country", 
+       x = "New Cases ",
+       fill = "Incidence") 
+ 
+cerv_cancer_country_ggplotly <- 
+  ggplotly(cerv_cancer_country, tooltip = "text")
+
+```
+
+```{r}
+
+#plotting trends
+
+cerv_cancer_chart <- cerv_cancer_long %>% 
+  mutate(cancer_rate = round(cancer_rate, 1)) %>% 
+  rename(Year = year,
+         `Incidence rate` = cancer_rate,
+         Country = country
+         ) %>% 
+  filter(Country %in% c("Maldives", "Lesotho", "Egypt", "Kiribati")) %>%
+  ggplot(aes(x = Year, 
+             y = `Incidence rate`, 
+             color = Country
+             #frame = Year 
+             )) +
+  geom_line() +
+    #scale_y_continuous(limits = c(0, 70)) +
+  labs(x = NULL,
+       y = NULL, 
+       color = NULL) +
+  theme_minimal() 
+
+cerv_cancer_chart_ggplotly <- ggplotly(cerv_cancer_chart, width = 900)
+
+
+```
+
+# 🏠 HOME
+
+## Row 1 {height="25%"}
+
+```{r}
+
+value_box(
+  title = tags$span(style = "font-size: 18px;", "Highest Incidence Rate per 100,000 in 2019"),
+  value = tags$span(style = "font-size: 22px;", highest_cancer_rate_value),
+  showcase = bsicons::bs_icon("sort-up"),
+  theme = value_box_theme(bg = "darkred"),
+  p(tags$span(style = "font-size: 14px;", paste0("(", highest_cancer_rate_country, ")")))
+)
+
+```
+
+```{r}
+
+value_box(
+  title = tags$span(style = "font-size: 18px;", "Lowest Incidence Rate per 100,000 in 2019"),
+  value = tags$span(style = "font-size: 22px;", lowest_cancer_rate_value),
+  showcase = bsicons::bs_icon("sort-down"),
+  theme = value_box_theme(bg = "pink"),
+  p(tags$span(style = "font-size: 14px;", paste0("(", lowest_cancer_rate_country, ")")))
+)
+
+
+```
+
+## Row 2 {height="75%"}
+
+### width {width="70%"}
+
+```{r title = "**Distribution of New Cases of Cervical Cancer per 100,000 Women Across the World, 2019**"}
+#cerv_cancer_map_ggplotly
+cerv_cancer_map_19_ggplotly
+
+```
+
+###  {width="30%"}
+
+```{r title = "**Top 20 Countries by Incident Cases**"}
+cerv_cancer_country_ggplotly
+
+```
+
+# 📈 CHART
+
+## Row 1 {height="25%"}
+
+```{r}
+value_box(
+  title = tags$span(style = "font-size: 18px;", "Highest Relative Change, 1990-2019"),
+  value = tags$span(style = "font-size: 22px;", paste0("+", increase_rel_change_value) ),
+  showcase = bsicons::bs_icon("arrow-up"),
+  theme = value_box_theme(bg = "purple"),
+  p(tags$span(style = "font-size: 14px;", paste0("(", increase_rel_change_country, ")")))
+)
+
+```
+
+```{r}
+value_box(
+  title = tags$span(style = "font-size: 18px;", "Lowest Relative Change, 1990-2019"),
+  value = tags$span(style = "font-size: 22px;", decrease_rel_change_value),
+  showcase = bsicons::bs_icon("arrow-down"),
+  theme = value_box_theme(bg = "violet"),
+  p(tags$span(style = "font-size: 14px;", paste0("(", decrease_rel_change_country, ")")))
+)
+
+```
+
+## Row 2 {height="75%"}
+
+```{r title = "**Chart Showing Countries with the Highest/Lowest Incidence rate (2019) and Relative change (1990-2019)**"}
+cerv_cancer_chart_ggplotly
+
+```
+
+# 🔢 TABLE
+
+The data used in this dashboard is shown below and can be downloaded as a CSV.
+
+```{r title: "**Incidence of Cervical Cancer per 100,000 Women by Country (1990 vs 2019)**"}
+
+htmltools::browsable(
+  tagList(
+    reactable(cerv_cancer_abs_rel_renamed,
+              elementId = "cerv_cancer_abs_rel_renamed-table",
+              searchable = T,
+              filterable = T,
+              pagination = F),
+    tags$button("Download as CSV", onclick = "Reactable.downloadDataCSV('cerv_cancer_abs_rel_renamed-table')")
+
+  )
+)
+
+
+#htmltools::browsable(
+  #tagList(
+   # reactable(cerv_cancer_data,
+    #          elementId = "cerv_cancer_data-table",
+    #          searchable = T,
+    #          filterable = T,
+    #          pagination = F),
+   # tags$button("Download as CSV", onclick = "Reactable.downloadDataCSV('cerv_cancer_data-table')")
+
+    
+ # )
+#)
+
+```
+
+# 📝 README
+
+Cervical cancer is caused by a sexually transmitted `papillomavirus`, which creates a lesion in the lower part of the uterus. In some women, this lesion can develop into cancer. It is a common cancer among middle-aged women. This dashboard illustrates the number of new cervical cancer cases per 100,000 women worldwide.
+
+From 1990 to 2019, we observed a substantial increase (+85.3%) in the incidence rate of cervical cancer in **Lesotho**. This rise could be attributed to factors such as changes in healthcare, screening practices, population health, or reporting accuracy.
+
+Conversely, the **Maldives** experienced a significant decrease (-60.5%) in cervical cancer incidence over the same period. This positive trend may be due to improvements in healthcare services, better screening and prevention programs, effective treatment strategies, and overall better health and awareness among the population.
+
+Through enhanced prevention, treatment, and health education, many countries have made remarkable progress and saved thousands of women's lives.
+
+# 🌐 ABOUT
+
+This data on cervical cancer was extracted from the Gapminder database `(www.gapminder.org/data/)` and is originally sourced from the Gapminder Foundation.
+
+Gapminder is renowned for its extensive data repository, offering a wide range of socio-economic indicators from around the world. Their data covers various aspects such as health, education, income, and demographic trends across different countries over time. To explore or utilize Gapminder's data, visit their website at `Gapminder`. They provide tools and resources to visualize and analyze data, facilitating a better understanding of global trends and patterns.
+
+Founded in 2005 by *Ola Rosling*, *Anna Rosling Rönnlund*, and *Hans Rosling*, Gapminder was named after the "Mind the Gap" warning messages on the London Underground.
+
+Below is an example of one of *Hans Rosling's* videos on cervical cancer:
+
+<iframe width="560" height="315" src="https://www.youtube.com/embed/WHOQCHkAyOo?si=SnNpyYjLKnaM95B_" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen>
+
+</iframe>
