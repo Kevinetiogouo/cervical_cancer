@@ -5,7 +5,7 @@ format:
   dashboard:
     logo: images/cervical-cancer.png
     nav-buttons: [github]
-    github: https://github.com/kevinetiogouo/cervical_cancer 
+    github: https://kevinetiogouo.github.io/cervical_cancer/
 theme: journal
 execute:
   echo: false
